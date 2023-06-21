@@ -10,11 +10,14 @@ For now, this requires a Safe contract with a [Zodiac Connext Module](https://gi
 
 This repository contains simple scripts and Dapps, alongside contracts for testing.
 
-The easiest way to get started is to start a local webserver and then navigate to the Dapp.
+The easiest way to get started is to navigate to [ipns/k2k4r8k6qtabqn7j4t1zfc38ko01g9ql0ursenhgwo7fjgw4otypgca5/catapult.html](https://cloudflare-ipfs.com/ipns/k2k4r8k6qtabqn7j4t1zfc38ko01g9ql0ursenhgwo7fjgw4otypgca5/catapult.html).
+
+Alternatively, start a local webserver and then navigate to the Dapp.
 ```
+cd dapps
 python -m SimpleHTTPServer 1337
+# now navigate to http://localhost:1337/catapult.html
 ```
-Then go to http://localhost:1337/catapult.html
 
 ## How to use
 

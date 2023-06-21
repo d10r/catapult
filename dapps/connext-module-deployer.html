@@ -42,7 +42,7 @@
         <br>
         !!! It is important to choose the L1 sender carefully, as it will have full privileges on the Safe contract once the module is enabled for it.<br>
         <br>
-        After deploying, you can initiate Catapult transactions from L1 using the <a href="../catapult.html">Catapult Dapp</a>
+        After deploying, you can initiate Catapult transactions from L1 using the <a href="catapult.html">Catapult Dapp</a>
         <br>
 
         <div>
@@ -182,7 +182,12 @@
             const l2Safe = $("#l2Safe").val();
 
             if (extraMetadata[l1ChainId] === undefined) {
-                alert("Dapp doesn't have a connext config for provided chainId", l1ChainId);
+                alert("Dapp doesn't have a connext config for provided L1 chainId", l1ChainId);
+                return;
+            }
+
+            if (extraMetadata[connData.chainId] === undefined) {
+                alert("Dapp doesn't have a connext config for connected L2 chainId", connData.chainId);
                 return;
             }
 
@@ -197,7 +202,7 @@
                 console.log(`Deploying module with args: owner ${owner}, avatar ${avatar}, target: ${target}, sender ${sender}, origin ${origin}, connext ${connext}`);
                 $("#logData").text(`Deploying module with args: owner ${owner}, avatar ${avatar}, target: ${target}, sender ${sender}, origin ${origin}, connext ${connext}`);
 
-                const artifact = await (await fetch('ConnextModule.json')).json();
+                const artifact = await (await fetch('ConnextModuleArtifact.json')).json();
                 const ConnextModuleFactory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, connData.provider.getSigner());
 
                 const connextModule = await ConnextModuleFactory.deploy(
@@ -209,11 +214,26 @@
                     connext,
                 );
                 console.log("Connext Module deployed to:", connextModule.address);
-                $("#successMsg").html(`Deployed address: ${connextModule.address} - now navigate to <a href="https://app.safe.global">https://app.safe.global</a> and enable the module, then you can use the <a href="../catapult.html?l1ChainId=${l1ChainId}&l2ChainId=${connData.chainId}&l2ConnextModule=${connextModule.address}" target="_blank">Catapult Dapp</a>`);
+                $("#successMsg").html(`Deployed address: ${connextModule.address} - now navigate to <a href="https://app.safe.global">https://app.safe.global</a> and enable the module, then you can use the <a href="catapult.html?l1ChainId=${l1ChainId}&l2ChainId=${connData.chainId}&l2ConnextModule=${connextModule.address}" target="_blank">Catapult Dapp</a>`);
             } catch(e) {
-                console.error(`deploying failed with: ${JSON.stringify(e, null, 2)}`);
-                alert(`Error: ${JSON.stringify(e, null, 2)}`);
+                console.error(`deploying failed with: ${getErrString(e)}`);
+                alert(`Error: ${getErrString(e)}`);
             }
+        }
+
+        // try to extract a useful err msg from error objects in exceptions
+        function getErrString(e) {
+            let errMsg = "";
+            if (typeof e === 'object') {
+                if (e instanceof Error) {
+                    errMsg = `${e.name}: ${e.message}`;
+                } else {
+                    errMsg = JSON.stringify(e, null, 2);
+                }
+            } else {
+                errMsg = e.toString();
+            }
+            return e;
         }
     </script>
 </body>

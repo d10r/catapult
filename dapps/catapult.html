@@ -37,7 +37,7 @@
         This Dapp is a PoC Dapp for the Superfluid L2 Catapult.<br>
         It allows to start/update/top-up a stream on L2 to an arbitrary receiver through an L1 transaction.<br>
         On L1, a <a href="https://docs.connext.network/developers/reference/contracts/calls#xcall">Connext xcall</a> is issued, combining an ERC20 cross-chain transfer with an L2 hook to be executed.<br>
-        On L2, the Connext contract calls a Connext Module tied to a Safe contract. Deployment and enabling of such a module needs to take place <b>before</b> doing a Catapult tx, can be done with <a href="../connext-module-deployer.html">Connext Module Deployer</a>.<br>
+        On L2, the Connext contract calls a Connext Module tied to a Safe contract. Deployment and enabling of such a module needs to take place <b>before</b> doing a Catapult tx, can be done with <a href="connext-module-deployer.html">Connext Module Deployer</a>.<br>
         <br>
         The bridged asset will go to the Safe tied to the configured Connext module.<br>
         The specified amount minus 0.3% (slippage tolerance) will be upgraded to a SuperToken and a stream opened to the configured receiver.<br>
@@ -326,19 +326,24 @@
                 $("#successMsg").html(`L1 xcall tx ${res.hash} - you can observe the full briding operation on <a href="https://${connData.network.isTestnet ? "testnet." : ""}connextscan.io/tx/${res.hash}" target="_blank">ConnextScan</a>`);
                 console.log(`receipt: ${JSON.stringify(receipt, null, 2)}`);
             } catch(e) {
-                let errMsg = "";
-                if (typeof e === 'object') {
-                    if (e instanceof Error) {
-                        errMsg = `${e.name}: ${e.message}`;
-                    } else {
-                        errMsg = JSON.stringify(e, null, 2);
-                    }
-                } else {
-                    errMsg = e.toString();
-                }
-                console.error(`catapulting failed with: ${errMsg}`);
-                alert(`Error: ${errMsg}`);
+                console.error(`catapulting failed with: ${getErrString(e)}`);
+                alert(`Error: ${getErrString(e)}`);
             }
+        }
+
+        // try to extract a useful err msg from error objects in exceptions
+        function getErrString(e) {
+            let errMsg = "";
+            if (typeof e === 'object') {
+                if (e instanceof Error) {
+                    errMsg = `${e.name}: ${e.message}`;
+                } else {
+                    errMsg = JSON.stringify(e, null, 2);
+                }
+            } else {
+                errMsg = e.toString();
+            }
+            return e;
         }
 
         async function getDecimals(erc20Addr) {
