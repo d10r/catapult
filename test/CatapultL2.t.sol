@@ -27,7 +27,9 @@ interface IXReceiver {
   ) external returns (bytes memory);
 }
 
-contract Upgrade_SuperTokens is Test {
+// This tests were created to help construct the needed calldata with several levels of nesting.
+// forge tests are very useful for that because they provide detailled stack traces on failure.
+contract CatapultL2Test is Test {
     
     using SuperTokenV1Library for ISuperToken;
 
@@ -62,8 +64,7 @@ contract Upgrade_SuperTokens is Test {
         vm.label(address(catapultL2), "catapultL2");
     }
 
-    //function execute(IERC20 erc20, ISuperToken superToken, uint256 amount, address receiver, int96 flowRate) public {
-    function notestExecuteSteps(/*uint256 amount,*/ /*address receiver, int96 flowRate*/) public {
+    function testExecuteSteps(/*uint256 amount,*/ /*address receiver, int96 flowRate*/) public {
         // fund the catapult contract with 100 tokens
         console.log("token supply: %s", erc20.totalSupply() / 1e18);
         deal(address(erc20), address(catapultL2), uint256(100e18));
@@ -80,7 +81,7 @@ contract Upgrade_SuperTokens is Test {
         console.log("flowRate after: %s", uint256(int256(superToken.getFlowRate(address(catapultL2), receiver))));
     }
 
-    function notestExecuteBatch(/*uint256 amount,*/ /*address receiver, int96 flowRate*/) public {
+    function testExecuteBatch(/*uint256 amount,*/ /*address receiver, int96 flowRate*/) public {
         // fund the catapult contract with 100 tokens
         console.log("token supply: %s", erc20.totalSupply() / 1e18);
         deal(address(erc20), address(catapultL2), uint256(100e18));
@@ -97,7 +98,7 @@ contract Upgrade_SuperTokens is Test {
         console.log("flowRate after: %s", uint256(int256(superToken.getFlowRate(address(catapultL2), receiver))));
     }
 
-    function notestInlineMulticall(/*uint256 amount,*/ /*address receiver, int96 flowRate*/) public {
+    function testInlineMulticall(/*uint256 amount,*/ /*address receiver, int96 flowRate*/) public {
         console.log("token supply: %s", erc20.totalSupply() / 1e18);
         // fund the test contract
         deal(address(erc20), address(this), uint256(100e18));
@@ -145,7 +146,7 @@ contract Upgrade_SuperTokens is Test {
         console.log("flowRate after: %s", uint256(int256(superToken.getFlowRate(address(catapultL2), receiver))));
     }
 
-    function workstestExecuteMulticallWithCalldata(/*uint256 amount,*/ /*address receiver, int96 flowRate*/) public {
+    function testExecuteMulticallWithCalldata(/*uint256 amount,*/ /*address receiver, int96 flowRate*/) public {
         // fund the test contract (I feel like a Safe now)
         deal(address(erc20), address(this), uint256(100e18));
         console.log("self erc20 balance: %s", erc20.balanceOf(address(this)));
@@ -170,7 +171,7 @@ contract Upgrade_SuperTokens is Test {
     }
 
     // let the catapult contract itself hold the funds
-    function notestExecuteExtContractMulticall(/*uint256 amount,*/ /*address receiver, int96 flowRate*/) public {
+    function testExecuteExtContractMulticall(/*uint256 amount,*/ /*address receiver, int96 flowRate*/) public {
         // fund the test contract
         deal(address(erc20), address(catapultL2), uint256(100e18));
         console.log("catapult erc20 balance: %s", erc20.balanceOf(address(catapultL2)));
@@ -223,8 +224,8 @@ contract Upgrade_SuperTokens is Test {
         bytes memory data = catapultL2.getMulticall3Calldata(MULTICALL, address(cfaFwd), erc20, superToken, amount, receiver, flowRate);
 
         bytes memory dataForSafe = abi.encode(
-            MULTICALL, 
-            0, 
+            MULTICALL,
+            0,
             data,
             Enum.Operation.DelegateCall
         );
@@ -245,6 +246,5 @@ contract Upgrade_SuperTokens is Test {
         console.logBytes(data);
 
         //require(success, "multicall failed");
-
     }
 }

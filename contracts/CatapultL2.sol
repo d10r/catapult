@@ -25,10 +25,8 @@ interface IMulticall3 {
   function aggregate3(Call3[] calldata calls) external payable returns (Result[] memory returnData);
 }
 
-// create contract implementing the operations to be done on L2. 
-// * set ERC20 approval to SuperToken - param: Token addr, SuperToken addr (later: get canonical from factory)
-// * upgrade to SuperToken
-// * set flowrate
+// Helper contract for the Catapult, useful for testing.
+// For the actual Catapult operations, it is not needed.
 contract CatapultL2 {
     using SuperTokenV1Library for ISuperToken;
 
@@ -126,7 +124,6 @@ contract CatapultL2 {
         return target.delegatecall(data);
     }
 }
-
 
 // what's annoying:
 // * no setFlowRate or createOrUpdateFlow

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>L2 Catapult - Connext Module Deployer</title>
+    <meta charset="UTF-8">
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.5.4/dist/ethers.umd.min.js"
+            integrity="sha256-u2JkA91avqVaE60Vn+iwn8Nh6yQpddB4D6mTLwbEntk="
+            crossorigin="anonymous">
+    </script>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
+            integrity="sha256-4+XzXVhsDmqanXGHaHvgh1gMQKX40OUvDEBTu8JcmNs="
+            crossorigin="anonymous">
+    </script>
+    <style>
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .height-fit-content {
+            height: fit-content;
+        }
+    </style>
+</head>
+<body>
+    <div class="outerDiv">
+        <div class="header-container">
+            <h1>L2 Catapult - Connext Module Deployer</h1>
+            <h3 id="loader" style="text-align: center; display: none;">Loading...</h3>
+            <button id='connect-wallet-btn' type="button" class="height-fit-content"
+                    onclick="execFuncWithLoader(connectWallet)">
+                connect wallet
+            </button>
+        </div>
+
+        This is a minimal Dapp for deploying a <a href="https://github.com/gnosis/zodiac-module-connext">Safe Connext module</a> to be used for the Superfluid L2 Catapult.<br>
+        The module is bound to a Safe contract on L2 and will only accept transactions from a given sender on L1.<br>
+        <br>
+        After deploying, you need to add the newly deployed module to your Safe.<br>
+        You can do so by navitating to the "Apps" section in the Safe UI, locate and open the "Zodiac" App, then select "Custom Module", paste the address and click "Add Module".<br>
+        <br>
+        !!! It is important to choose the L1 sender carefully, as it will have full privileges on the Safe contract once the module is enabled for it.<br>
+        <br>
+        After deploying, you can initiate Catapult transactions from L1 using the <a href="../catapult.html">Catapult Dapp</a>
+        <br>
+
+        <div>
+            <h3>L1</h3>
+            
+            <label for="l1Sender">Transaction sender:</label><br/>
+            <input id="l1Sender" size="40"/><br/>
+
+            <label for="l1ChainId">Chain Id:</label><br/>
+            <input id="l1ChainId" size="40"/><br/>
+            
+            <h3>L2 (connected to)</h3>
+
+            <label for="l2Safe">Safe address:</label><br/>
+            <input id="l2Safe" size="40"/><br/>
+
+            <button onclick="execFuncWithLoader(deploy)">Deploy</button><br></br>
+            <span id="logData"></span><br/>
+            <b><span id="successMsg"></span></b><br/>
+        </div>
+    </div>
+
+    <script type="module">
+        /*
+        * This Dapp deploys a Zodiac Connect Module for the Superfluid L2 Catapult.
+        */
+
+        import networks from "https://cdn.jsdelivr.net/gh/superfluid-finance/metadata/module/networks/index.js";
+
+        let connData = {}; // chainId, provider, userAddress, ...
+
+        // extension to what's provided by SF metadata, chainId as key
+        const extraMetadata = {
+            // testnets
+            80001: {
+                connextAddr: "0x2334937846Ab2A3FCE747b32587e1A1A2f6EEC5a",
+                connextDomain: 9991
+            },
+            5: {
+                connextAddr: "0xFCa08024A6D4bCc87275b1E4A1E22B71fAD7f649",
+                connextDomain: 1735353714
+            },
+            // mainnets
+            100: {
+                connextAddr: "0x5bB83e95f63217CDa6aE3D181BA580Ef377D2109",
+                connextDomain: 6778479
+            },
+            137: {
+                connextAddr: "0x11984dc4465481512eb5b777E44061C158CF2259",
+                connextDomain: 1886350457
+            }
+        };
+
+        // pre-fill input fields from query params if present
+        // example query: dapp.html?l1ChainId=80001&l1ERC20=TODO&l2ChainId=5&l2ERC20=TODO&l2Safe=0x18A6dBAA09317C352CAd15F03A13F1f38862d124&l2Receiver=0x209b6ff4616152187d752eca6efafdc6e873c48a&l2FlowratePerDay=0.001
+        const params = new URLSearchParams(window.location.search)
+        $("#l1Sender").val(params.get("l1Sender"));
+        $("#l1ChainId").val(params.get("l1ChainId"));
+        
+        $("#l2Safe").val(params.get("l2Safe"));
+
+        // executes a function and shows a loading UI hint in the meantime
+        window.execFuncWithLoader = async function (func) {
+            $("#loader").toggle();
+            try {
+                await func();
+            } catch (err) {
+                console.error(err);
+            } finally {
+                $("#loader").toggle();
+            }
+        }
+
+        // connects to a browser injected wallet (https://eips.ethereum.org/EIPS/eip-1193)
+        window.connectWallet = async function () {
+            // does nothing if already connected
+            if (!connData.provider) {
+                $("#connect-wallet-btn").text("connecting...");
+                await setAccount();
+
+                if (setNetwork(Number(window.ethereum.chainId))) {
+                    $("#connect-wallet-btn").text(connData.userAddress + " | chain id: " + connData.chainId);
+                } else {
+                    $("#connect-wallet-btn").text("not connected");
+                }
+            }
+        }
+
+        window.setAccount = async function () {
+            const response = await window.ethereum.request({ method: "eth_requestAccounts" });
+            connData.userAddress = response[0];
+        }
+
+        function setNetwork(chainId) {
+            connData.network = networks.getNetworkByChainId(chainId);
+            if (connData.network === undefined) {
+                alert(`ERR: wallet connected to unsupported network (chainId: ${chainId})`);
+                return false;
+            }
+            connData.chainId = Number(chainId);
+            connData.provider = new ethers.providers.Web3Provider(window.ethereum);
+            if (!window.ethereum) {
+                alert("ERR: no injected ethereum provider found");
+                return false;
+            }
+            return true;
+        }
+
+        // handle network or account changes in wallet after init
+        if (window.ethereum) {
+            window.ethereum.on("accountsChanged", async accounts => {
+                console.log("on accounts changed: ", accounts[0]);
+                connData.userAddress = accounts[0];
+                $("#connect-wallet-btn").text(connData.userAddress + " | chain id: " + connData.chainId);
+            });
+            window.ethereum.on("chainChanged", async chainId => {
+                console.log("chain changed")
+                if (connData.userAddress === undefined) {
+                    await setAccount();
+                }
+                if (setNetwork(Number(chainId))) {
+                    $("#connect-wallet-btn").text(connData.userAddress + " | chain id: " + connData.chainId);
+                } else {
+                    $("#connect-wallet-btn").text("not connected");
+                }
+            });
+        }
+
+        window.deploy = async function () {
+            if(connData.provider === undefined) {
+                alert("no wallet connected");
+                return;
+            }
+
+            const l1Sender = $("#l1Sender").val();
+            const l1ChainId = $("#l1ChainId").val();
+            const l2Safe = $("#l2Safe").val();
+
+            if (extraMetadata[l1ChainId] === undefined) {
+                alert("Dapp doesn't have a connext config for provided chainId", l1ChainId);
+                return;
+            }
+
+            try {
+                const owner = l2Safe;
+                const avatar = l2Safe;
+                const target = l2Safe;
+                const sender = l1Sender;
+                const origin = extraMetadata[l1ChainId].connextDomain;
+                const connext = extraMetadata[connData.chainId].connextAddr;
+
+                console.log(`Deploying module with args: owner ${owner}, avatar ${avatar}, target: ${target}, sender ${sender}, origin ${origin}, connext ${connext}`);
+                $("#logData").text(`Deploying module with args: owner ${owner}, avatar ${avatar}, target: ${target}, sender ${sender}, origin ${origin}, connext ${connext}`);
+
+                const artifact = await (await fetch('ConnextModule.json')).json();
+                const ConnextModuleFactory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, connData.provider.getSigner());
+
+                const connextModule = await ConnextModuleFactory.deploy(
+                    owner,
+                    avatar,
+                    target,
+                    sender,
+                    origin,
+                    connext,
+                );
+                console.log("Connext Module deployed to:", connextModule.address);
+                $("#successMsg").html(`Deployed address: ${connextModule.address} - now navigate to <a href="https://app.safe.global">https://app.safe.global</a> and enable the module, then you can use the <a href="../catapult.html?l1ChainId=${l1ChainId}&l2ChainId=${connData.chainId}&l2ConnextModule=${connextModule.address}" target="_blank">Catapult Dapp</a>`);
+            } catch(e) {
+                console.error(`deploying failed with: ${JSON.stringify(e, null, 2)}`);
+                alert(`Error: ${JSON.stringify(e, null, 2)}`);
+            }
+        }
+    </script>
+</body>
+</html>

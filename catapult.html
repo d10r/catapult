@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>L2 Catapult</title>
+    <meta charset="UTF-8">
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.5.4/dist/ethers.umd.min.js"
+            integrity="sha256-u2JkA91avqVaE60Vn+iwn8Nh6yQpddB4D6mTLwbEntk="
+            crossorigin="anonymous">
+    </script>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
+            integrity="sha256-4+XzXVhsDmqanXGHaHvgh1gMQKX40OUvDEBTu8JcmNs="
+            crossorigin="anonymous">
+    </script>
+    <style>
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .height-fit-content {
+            height: fit-content;
+        }
+    </style>
+</head>
+<body>
+    <div class="outerDiv">
+        <div class="header-container">
+            <h1>L2 Catapult</h1>
+            <h3 id="loader" style="text-align: center; display: none;">Loading...</h3>
+            <button id='connect-wallet-btn' type="button" class="height-fit-content"
+                    onclick="execFuncWithLoader(connectWallet)">
+                connect wallet
+            </button>
+        </div>
+
+        This Dapp is a PoC Dapp for the Superfluid L2 Catapult.<br>
+        It allows to start/update/top-up a stream on L2 to an arbitrary receiver through an L1 transaction.<br>
+        On L1, a <a href="https://docs.connext.network/developers/reference/contracts/calls#xcall">Connext xcall</a> is issued, combining an ERC20 cross-chain transfer with an L2 hook to be executed.<br>
+        On L2, the Connext contract calls a Connext Module tied to a Safe contract. Deployment and enabling of such a module needs to take place <b>before</b> doing a Catapult tx, can be done with <a href="../connext-module-deployer.html">Connext Module Deployer</a>.<br>
+        <br>
+        The bridged asset will go to the Safe tied to the configured Connext module.<br>
+        The specified amount minus 0.3% (slippage tolerance) will be upgraded to a SuperToken and a stream opened to the configured receiver.<br>
+        Make sure you provide correct addresses for the L2 ERC20 and SuperToken address, as those won't be checked.<br>
+        If a stream between the configured Safe and receiver already exists, the transaction will succeed anyway. In this case the flowrate will be adjusted if it differs, otherwise the operation will simply become a top-up for the sender account (Safe).<br>
+        <br>
+        !!! Important: this version of the Dapp doesn't have support for dynamic relayer fee setting.<br>
+        This fee is needed to pay for the cost incurred to bridge operators for the L2 transaction.<br>
+        You can make an educated guess by calculating the approximate cost of a tx consuming 1M gas at current average gas prices on that L2. 1M is more than double what such a tx would usually consume (unless the stream receiver is an expensive SuperApp), so there should be enough margin.<br>
+        For more details about relayer fees, see the <a href="https://docs.connext.network/developers/guides/estimating-fees">Connext Docs</a>.
+
+        <div>
+            <h3>L1 (connected to)</h3>
+
+            <label for="l1Erc20">ERC20 address:</label><br/>
+            <input id="l1Erc20" size="40"/><br/>
+
+            <label for="l1Amount">Amount to be transferred (in full tokens):</label><br/>
+            <input id="l1Amount" size="40"/><br/>
+
+            <label for="l1RelayerFee">Relayer fee in native tokens for the bridging:</label><br/>
+            <input id="l1RelayerFee" size="40"/><br/>
+
+            <h3>L2</h3>
+
+            <label for="l2ChainId">Chain Id:</label><br/>
+            <input id="l2ChainId" size="40"/><br/>
+
+            <label for="l2Erc20">ERC20 address:</label><br/>
+            <input id="l2Erc20" size="40"/><br/>
+
+            <label for="l2SuperToken">SuperToken address:</label><br/>
+            <input id="l2SuperToken" size="40"/><br/>
+
+            <label for="l2ConnextModule">Connext Module address:</label><br/>
+            <input id="l2ConnextModule" size="40"/><br/>
+
+            <label for="l2Receiver">Stream Receiver address:</label><br/>
+            <input id="l2Receiver" size="40"/><br/>
+
+            <label for="l2FlowratePerDay">Flowrate (token/day):</label><br/>
+            <input id="l2FlowratePerDay" size="40"/><br/>
+
+            <button onclick="execFuncWithLoader(catapult)">Zboooiiinggg</button><br></br>
+            <span id="logData"></span><br/>
+            <b><span id="successMsg"></span></b><br/>
+        </div>
+    </div>
+
+    <script type="module">
+        /*
+        * This Dapp is a minimal implementation of the Superfluid L2 Catapult.
+        * It allows to start or/update/top-up a stream on L2 through an L1 transaction.
+        * On L1, a Connext xcall is issued, combining an ERC20 xcain transfer with an L2 hook to be executed
+        * On L2, the receiver is expected to be a Safe which has the Zodiac Connext Module enabled.
+        *
+        * Hardcoded params:
+        * L1:
+        * - Connext Contract
+        * - Connext domain
+        * L2:
+        * - Connext contract
+        * - Connext domain
+        * - SF host (get from metadata)
+        * - SF CFAfwd (get from metadata)
+        *
+        * User provider params:
+        * L1:
+        * - ChainId (provided by connected wallet if not in meta-tx mode)
+        * - ERC20
+        * L2:
+        * - chainId
+        * - Zodiac Connext Module
+        * - ERC20 (TODO: auto-detect from Connext mapping (?))
+        * - SuperToken (TODO: auto-detect via Resolver (?))
+        * - stream receiver
+        * - stream flowrate
+        */
+
+        import networks from "https://cdn.jsdelivr.net/gh/superfluid-finance/metadata/module/networks/index.js";
+        // abi extract: allowance, approve, decimals
+        const IERC20Abi = '[{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"owner","type":"address"},{"indexed":true,"internalType":"address","name":"spender","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Approval","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Transfer","type":"event"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"spender","type":"address"}],"name":"allowance","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"approve","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalSupply","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transfer","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transferFrom","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"decimals","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"}]';
+        // abi extract: getUnderLyingToken(), upgrade[To], downgrade[To]
+        const ISuperTokenAbi = '[{"inputs":[],"name":"getUnderlyingToken","outputs":[{"internalType":"address","name":"tokenAddr","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"upgrade","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"},{"internalType":"bytes","name":"data","type":"bytes"}],"name":"upgradeTo","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"downgrade","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"downgradeTo","outputs":[],"stateMutability":"nonpayable","type":"function"}]';
+        // abi extract: aggregate3
+        const Multicall3Abi = '[{"inputs":[{"components":[{"internalType":"address","name":"target","type":"address"},{"internalType":"bool","name":"allowFailure","type":"bool"},{"internalType":"bytes","name":"callData","type":"bytes"}],"internalType":"struct Multicall3.Call3[]","name":"calls","type":"tuple[]"}],"name":"aggregate3","outputs":[{"components":[{"internalType":"bool","name":"success","type":"bool"},{"internalType":"bytes","name":"returnData","type":"bytes"}],"internalType":"struct Multicall3.Result[]","name":"returnData","type":"tuple[]"}],"stateMutability":"payable","type":"function"}]';
+        // abi extract: setFlowrate, setFlowrateFrom
+        const CFAFwdAbi = '[{"inputs":[{"internalType":"contract ISuperToken","name":"token","type":"address"},{"internalType":"address","name":"receiver","type":"address"},{"internalType":"int96","name":"flowrate","type":"int96"}],"name":"setFlowrate","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"contract ISuperToken","name":"token","type":"address"},{"internalType":"address","name":"sender","type":"address"},{"internalType":"address","name":"receiver","type":"address"},{"internalType":"int96","name":"flowrate","type":"int96"}],"name":"setFlowrateFrom","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"}]';
+
+        let connData = {}; // chainId, provider, userAddress, ...
+
+        // extension to what's provided by SF metadata, chainId as key
+        const extraMetadata = {
+            // testnets
+            80001: {
+                connextAddr: "0x2334937846Ab2A3FCE747b32587e1A1A2f6EEC5a",
+                connextDomain: 9991
+            },
+            5: {
+                connextAddr: "0xFCa08024A6D4bCc87275b1E4A1E22B71fAD7f649",
+                connextDomain: 1735353714
+            },
+            // mainnets
+            100: {
+                connextAddr: "0x5bB83e95f63217CDa6aE3D181BA580Ef377D2109",
+                connextDomain: 6778479
+            },
+            137: {
+                connextAddr: "0x11984dc4465481512eb5b777E44061C158CF2259",
+                connextDomain: 1886350457
+            }
+        };
+
+        window.fillFormFromUrlParams = function(urlParams) {
+            urlParams.forEach((val, key) => $(`#${key}`).val(val));
+        }
+
+        // pre-fill input fields from query params if present
+        const params = new URLSearchParams(window.location.search)
+        window.params = params;
+        fillFormFromUrlParams(params);
+
+        connData.wantedChainId = Number(params.get("l1ChainId")); // 0 if undefined
+
+        // executes a function and shows a loading UI hint in the meantime
+        window.execFuncWithLoader = async function (func) {
+            $("#loader").toggle();
+            try {
+                await func();
+            } catch (err) {
+                console.error(err);
+            } finally {
+                $("#loader").toggle();
+            }
+        }
+
+        // connects to a browser injected wallet (https://eips.ethereum.org/EIPS/eip-1193)
+        window.connectWallet = async function () {
+            // does nothing if already connected
+            if (!connData.provider) {
+                $("#connect-wallet-btn").text("connecting...");
+                await setAccount();
+
+                if (setNetwork(Number(window.ethereum.chainId))) {
+                    $("#connect-wallet-btn").text(connData.userAddress + " | chain id: " + connData.chainId);
+                } else {
+                    $("#connect-wallet-btn").text("not connected");
+                }
+            }
+        }
+
+        window.setAccount = async function () {
+            const response = await window.ethereum.request({ method: "eth_requestAccounts" });
+            connData.userAddress = response[0];
+        }
+
+        function setNetwork(chainId) {
+            if (connData.wantedChainId !== 0 && chainId !== connData.wantedChainId) {
+                alert(`Wallet NOT connected to a chain with wanted id ${connData.wantedChainId}`);
+                return false;
+            }
+            connData.network = networks.getNetworkByChainId(chainId);
+            if (connData.network === undefined) {
+                alert(`ERR: wallet connected to unsupported network (chainId: ${chainId})`);
+                return false;
+            }
+            connData.chainId = Number(chainId);
+            connData.provider = new ethers.providers.Web3Provider(window.ethereum);
+            if (!window.ethereum) {
+                alert("ERR: no injected ethereum provider found");
+                return false;
+            }
+            return true;
+        }
+
+        // handle network or account changes in wallet after init
+        if (window.ethereum) {
+            window.ethereum.on("accountsChanged", async accounts => {
+                console.log("on accounts changed: ", accounts[0]);
+                connData.userAddress = accounts[0];
+                $("#connect-wallet-btn").text(connData.userAddress + " | chain id: " + connData.chainId);
+            });
+            window.ethereum.on("chainChanged", async chainId => {
+                console.log("chain changed")
+                if (connData.userAddress === undefined) {
+                    await setAccount();
+                }
+                if (setNetwork(Number(chainId))) {
+                    $("#connect-wallet-btn").text(connData.userAddress + " | chain id: " + connData.chainId);
+                } else {
+                    $("#connect-wallet-btn").text("not connected");
+                }
+            });
+        }
+
+        window.catapult = async function () {
+            if(connData.provider === undefined) {
+                alert("no wallet connected");
+                return;
+            }
+
+            const l1ChainId = connData.chainId;
+            const l2ChainId = Number($("#l2ChainId").val());
+
+            if (extraMetadata[l1ChainId] === undefined) {
+                alert("Dapp doesn't have a connext config for provided L1 chainId", l1ChainId);
+                return;
+            }
+            if (extraMetadata[l2ChainId] === undefined) {
+                alert("Dapp doesn't have a connext config for provided L2 chainId", l2ChainId);
+                return;
+            }
+            connData.l2Network = networks.getNetworkByChainId(l2ChainId);
+            if (connData.l2Network === undefined) {
+                alert(`ERR: provided L2 chainId ${l2ChainId} doesn't map to a known network with Superfluid deployment`);
+                return;
+            }
+
+            try {
+                console.log("getting args...");
+                const cfaFwd = connData.l2Network.contractsV1.cfaV1Forwarder;
+                const l2Erc20 = $("#l2Erc20").val();
+                const superToken = $("#l2SuperToken").val();
+                const receiver = $("#l2Receiver").val();
+                const flowRate = ethers.utils.parseEther($("#l2FlowratePerDay").val());
+                const amountStr = $("#l1Amount").val();
+                // this may be different from erc20 amount if erc20 decimals is not 18
+                const superTokenAmount = ethers.utils.parseEther(amountStr);
+  
+                console.log("constructing multicall calldata...");
+                const mc3CallData = (await getMulticall3Calldata(
+                    cfaFwd,
+                    l2Erc20,
+                    superToken,
+                    superTokenAmount.sub(superTokenAmount.mul(30).div(10000)), //subtract the slippage
+                    receiver,
+                    flowRate
+                )).data;
+                console.log("mc3Calldata:", mc3CallData);
+
+                console.log("constructing Safe Module calldata...");
+                const callData = await getSafeModuleCalldata(mc3CallData);
+                console.log("calldata:", callData);
+              
+                //  process.exit(0);
+              
+                console.log("preparing xcall args...");
+                // setup Connext interface
+                const connextAbi = [
+                  'function xcall(uint32,address,address,address,uint256,uint256,bytes) external payable returns (bytes32)',
+                ];
+                const l1ConnextAddress = extraMetadata[l1ChainId].connextAddr;
+                const connext = new ethers.Contract(l1ConnextAddress, connextAbi, connData.provider.getSigner());
+                const l1Erc20 = $("#l1Erc20").val();
+                const destinationDomain = extraMetadata[l2ChainId].connextDomain;
+                const target = $("#l2ConnextModule").val();
+                const senderAddr = await connData.provider.getSigner().getAddress();
+                const maxSlippage = 30;
+                const relayerFee = ethers.utils.parseEther($("#l1RelayerFee").val());
+
+                const decimals = await getDecimals(l1Erc20);
+                console.log(`L1 ERC20 has ${decimals} decimals`);
+                const amount = ethers.utils.parseUnits(amountStr, decimals);
+
+                await requestApprovalIfNeeded(l1Erc20, senderAddr, l1ConnextAddress, amount);
+
+                console.log("doing xcall");
+                window.connData = connData;
+                console.log(`Executing catapult tx: destinationDomain ${destinationDomain}, target ${target}, asset: ${l1Erc20}, sender ${senderAddr}, amount ${amount}, maxSlippage ${maxSlippage}, calldata ${callData}`);
+                $("#logData").text(`Executing catapult tx: destinationDomain ${destinationDomain}, target ${target}, asset: ${l1Erc20}, sender ${senderAddr}, amount ${amount}, maxSlippage ${maxSlippage}, calldata ${callData}`);
+
+                // execute the xcall operation
+                const res = await connext.xcall(
+                  destinationDomain,
+                  target, // contract on destination, e.g. Safe module
+                  l1Erc20 || ethers.constants.AddressZero, // asset
+                  senderAddr, // delegate - authenticated call
+                  amount, // amount
+                  maxSlippage, // slippage - 0 without asset - is bps, e.g. 30 would be 0.3%
+                  callData,
+                  { value: relayerFee }
+                );
+
+                console.log(`pending tx: ${res.hash}`);
+                const receipt = await connData.provider.waitForTransaction(res.hash);
+                $("#successMsg").html(`L1 xcall tx ${res.hash} - you can observe the full briding operation on <a href="https://${connData.network.isTestnet ? "testnet." : ""}connextscan.io/tx/${res.hash}" target="_blank">ConnextScan</a>`);
+                console.log(`receipt: ${JSON.stringify(receipt, null, 2)}`);
+            } catch(e) {
+                let errMsg = "";
+                if (typeof e === 'object') {
+                    if (e instanceof Error) {
+                        errMsg = `${e.name}: ${e.message}`;
+                    } else {
+                        errMsg = JSON.stringify(e, null, 2);
+                    }
+                } else {
+                    errMsg = e.toString();
+                }
+                console.error(`catapulting failed with: ${errMsg}`);
+                alert(`Error: ${errMsg}`);
+            }
+        }
+
+        async function getDecimals(erc20Addr) {
+            console.log("getting decmals of ERC20", erc20Addr);
+            const erc20 = new ethers.Contract(erc20Addr, IERC20Abi, connData.provider);
+            return await erc20.decimals();
+        }
+
+        async function requestApprovalIfNeeded(erc20Addr, owner, spender, requiredAllowance) {
+            const erc20 = new ethers.Contract(erc20Addr, IERC20Abi, connData.provider.getSigner());
+            const curAllowance = await erc20.allowance(owner, spender);
+            console.log(`current allowance: ${curAllowance}, should be ${requiredAllowance}`);
+
+            if (curAllowance.lt(requiredAllowance)) {
+                console.log("need new ERC20 approval");
+                const tx = await erc20.approve(spender, requiredAllowance);
+                console.log(`approve tx pending: ${tx.hash}`);
+                const receipt = await tx.wait();
+                console.log(`approve tx mined in block ${receipt.blockNumber}`);
+            }
+        }
+
+        async function getMulticall3Calldata(cfaFwd, l2Erc20, superToken, amount, receiver, flowRate, multicallAddr="0xcA11bde05977b3631167028862bE2a173976CA11") {
+            const mc3 = new ethers.Contract(multicallAddr, Multicall3Abi);
+            const calls = [
+                {
+                    target: l2Erc20,
+                    allowFailure: false,
+                    callData: new ethers.utils.Interface(IERC20Abi).encodeFunctionData("approve", [superToken, amount])
+                },
+                {
+                    target: superToken,
+                    allowFailure: false,
+                    callData: new ethers.utils.Interface(ISuperTokenAbi).encodeFunctionData("upgrade", [amount])
+                },
+                {
+                    target: cfaFwd,
+                    allowFailure: false,
+                    callData: new ethers.utils.Interface(CFAFwdAbi).encodeFunctionData("setFlowrate", [superToken, receiver, flowRate])
+                }
+            ];
+          
+            return mc3.populateTransaction.aggregate3(calls);
+        }
+
+        // default target is the canonical multicall address
+        async function getSafeModuleCalldata(data, target="0xcA11bde05977b3631167028862bE2a173976CA11") {
+            return ethers.utils.defaultAbiCoder.encode(
+                // to, value, data, operation
+                ['address', 'uint256', 'bytes', 'uint8'], // array of types
+                [target, 0, data, 1] // operation 1 is DelegateCall
+            );
+        }
+    </script>
+</body>
+</html>

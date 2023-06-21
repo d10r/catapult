@@ -1,4 +1,6 @@
-// src/scripts/xcall.ts
+/*
+ * Standalone nodejs script using an instance of CatapultL2 to get the calldata (for testing only)
+ */
 const { ethers } = require("hardhat");
 
 async function main() {
