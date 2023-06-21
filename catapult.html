@@ -262,7 +262,7 @@
                 const l2Erc20 = $("#l2Erc20").val();
                 const superToken = $("#l2SuperToken").val();
                 const receiver = $("#l2Receiver").val();
-                const flowRate = ethers.utils.parseEther($("#l2FlowratePerDay").val());
+                const flowRate = ethers.utils.parseEther($("#l2FlowratePerDay").val()).div(3600*24);
                 const amountStr = $("#l1Amount").val();
                 // this may be different from erc20 amount if erc20 decimals is not 18
                 const superTokenAmount = ethers.utils.parseEther(amountStr);
